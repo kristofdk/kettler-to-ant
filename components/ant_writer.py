@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 import time
 
@@ -6,7 +6,7 @@ from time import sleep
 
 from components.ant import PowerModel
 
-from ant_broadcaster import PowerBroadcaster
+from .ant_broadcaster import PowerBroadcaster
 
 
 def checkRange(min, value, max):

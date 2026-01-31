@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 import os
 import sys
@@ -6,7 +6,7 @@ import traceback
 import threading
 from threading import Thread
 
-from components.ant_writer import *
+from components.ant_writer import PowerWriter, currentTimeMillis, sleep
 from components import kettler_serial
 from components.ant import PowerModel
 
@@ -41,11 +41,11 @@ def currentTimeMillis():
 
 
 def printStackTraces():
-    print >> sys.stderr, "\n*** STACKTRACE - START ***\n"
+    print("\n*** STACKTRACE - START ***\n", file=sys.stderr)
     code = []
     threadList = threading.enumerate()
     for threadId, stack in sys._current_frames().items():
-        thread = filter(lambda x: x.ident == threadId, threadList)[0]
+        thread = [x for x in threadList if x.ident == threadId][0]
         code.append("\n# Thread: id[%s] name[%s] daemon[%s]" % (threadId, thread.name, thread.daemon))
         for filename, lineno, name, line in traceback.extract_stack(stack):
             code.append('  File: "%s", line %d, in %s' % (filename,
@@ -54,8 +54,8 @@ def printStackTraces():
                 code.append("    %s" % (line.strip()))
 
     for line in code:
-        print >> sys.stderr, line
-    print >> sys.stderr, "\n*** STACKTRACE - END ***\n"
+        print(line, file=sys.stderr)
+    print("\n*** STACKTRACE - END ***\n", file=sys.stderr)
 
 
 def runWatchdog(antWriter):
@@ -136,24 +136,16 @@ def runMain(antWriter, kettler):
     print("Creating worker threads")
 
     # this thread reads from the in-memory power model and writes to Ant+
-    antWriteThread = Thread(target=antWriter.start, args=[])
-    antWriteThread.setDaemon(True)
-    antWriteThread.setName("ant-write")
+    antWriteThread = Thread(target=antWriter.start, args=[], daemon=True, name="ant-write")
 
     # this thread watches that progress continues to be made
-    watchdogThread = Thread(target=runWatchdog, args=(antWriter,))
-    watchdogThread.setDaemon(True)
-    watchdogThread.setName("watchdog")
+    watchdogThread = Thread(target=runWatchdog, args=(antWriter,), daemon=True, name="watchdog")
 
     # this thread reads input from the Kettler and pushes it into the power model
-    inputThread = Thread(target=readFromKettler, args=(antWriter, kettler, DEBUG,))
-    inputThread.setDaemon(True)
-    inputThread.setName("kettler-to-model")
+    inputThread = Thread(target=readFromKettler, args=(antWriter, kettler, DEBUG,), daemon=True, name="kettler-to-model")
 
     # this thread checks for Ctrl-C and shuts down
-    interruptThread = Thread(target=detectInterrupt, args=(antWriter,))
-    interruptThread.setDaemon(True)
-    interruptThread.setName("interrupt-detector")
+    interruptThread = Thread(target=detectInterrupt, args=(antWriter,), daemon=True, name="interrupt-detector")
 
     interruptThread.start()
     antWriteThread.start()

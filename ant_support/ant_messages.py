@@ -1,8 +1,8 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 # These are ant messages from the public Ant docs
 
-messagesd="""
+messagesd = """
 * assign_channel    0x42,channel,channel_type,network_number
 * unassign_channel  0x41,channel
 * open_channel      0x4b,channel
@@ -109,5 +109,5 @@ capabilities_extended   bool CAPABILITIES_FS_ANTFS_ENABLED=advanced_options_2&(1
 
 """
 
-import message_set
-messages=message_set.MessageSet(messagesd,message_calculations)
+from . import message_set
+messages = message_set.MessageSet(messagesd, message_calculations)

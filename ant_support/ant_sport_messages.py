@@ -1,6 +1,6 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
-messages="""
+messages = """
 power calibration_request    None,channel,0x01,0xAA,None,None,None,None,None,None
 power srm_zero_response      None,channel,0x01,0x10,0x01,None,None,None,uint16_be:offset
 power calibration_pass       None,channel,0x01,0xAC,uint8:autozero_status,None,None,None,uint16_le:calibration_data
@@ -64,5 +64,5 @@ wheel_torque    float   timediff=wheel_period/2048.0
 heart_rate      float   timediff=measurement_time/1024.0
 """
 
-import message_set
-messages=message_set.MessageSet(messages, message_calculations)
+from . import message_set
+messages = message_set.MessageSet(messages, message_calculations)

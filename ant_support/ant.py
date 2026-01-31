@@ -1,8 +1,9 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 import serial
 import sys
 import time
+from functools import reduce
 
 ANT_Version = 0x3e
 ANT_Capabilities = 0x54
@@ -67,13 +68,13 @@ class AntChecksumException(AntException): pass
 
 
 def load_ant_messages():
-    import ant_messages
+    from . import ant_messages
     try:
-        import quarq_messages
+        from . import quarq_messages
     except ImportError:
         quarq_messages = None
 
-    import ant_sport_messages
+    from . import ant_sport_messages
 
     messages = ant_sport_messages.messages
     if quarq_messages:
@@ -108,7 +109,7 @@ class Ant:
 
         self.sp = None  # NoPort()
 
-        self.ant_pad = '\0\0\0'
+        self.ant_pad = b'\0\0\0'
 
         self.rssi_log = {}
         self.rssi_logging = False
@@ -117,7 +118,7 @@ class Ant:
         if None == port:
             port = guess_ant_serial_port()
         self.sp = port
-        self.sp.setTimeout(120)  # Sometimes the initial message takes a long time to come in.
+        self.sp.timeout = (120)  # Sometimes the initial message takes a long time to come in.
         try:
             "RESET and TEST together make up the SBW pair for AT3 module"
             self.sp.setDTR(1)  # RESET
@@ -157,8 +158,8 @@ class Ant:
         baudrates.remove(self.sp.baudrate)
         baudrates = [self.sp.baudrate] + baudrates
         for baudrate in baudrates:
-            if not self.quiet: print "trying", baudrate
-            self.sp.setBaudrate(baudrate)
+            if not self.quiet: print("trying", baudrate)
+            self.sp.baudrate = baudrate
             if self.reset_system_and_probe(timeout):
                 return
         raise Exception("Where's Ant?")
@@ -180,33 +181,33 @@ class Ant:
         "data is a list of values (as ints)"
         message = self.assemble_message(id, data)
 
-        message = ''.join([chr(c) for c in message])
-        self.sp.write(message + self.ant_pad)
+        message_bytes = bytes(message)
+        self.sp.write(message_bytes + self.ant_pad)
         self.sp.flush()
 
         # this sleep is to work around bugs in cp210x driver...
-        time.sleep(len(message) * 10.0 / self.sp.getBaudrate())
+        time.sleep(len(message_bytes) * 10.0 / self.sp.baudrate)
 
         if not self.quiet:
-            self.print_message(message)
+            self.print_message(message_bytes)
 
     def print_message(self, message):
-        print "sending message %s [ %s ]" % (ant_ids[ord(message[2])], ' '.join(["%02x" % ord(c) for c in message]))
+        print("sending message %s [ %s ]" % (ant_ids[message[2]], ' '.join(["%02x" % c for c in message])))
 
     def get_byte(self):
         while 1:
             b = self.sp.read(1)
-            if b == '':
+            if b == b'':
                 raise AntNoDataException
             else:
                 break
 
-        return ord(b)
+        return b[0]
 
     def receive_message(self, source=None, dispose=None, wait=30.0, syncprint=''):
         # wait 0.0 is forever?
-        timeout = self.sp.getTimeout()
-        self.sp.setTimeout(wait)
+        timeout = self.sp.timeout
+        self.sp.timeout = (wait)
 
         try:
 
@@ -215,7 +216,7 @@ class Ant:
             x = source()
             while x != 0xa4:
                 if x:
-                    print syncprint, "lost sync 0x%02x" % x
+                    print(syncprint, "lost sync 0x%02x" % x)
                 x = source()
 
             datalen = source()
@@ -224,12 +225,12 @@ class Ant:
             checksum = source()
 
             if self.assemble_message(id, data)[-1] != checksum:
-                print id, data
+                print(id, data)
                 raise AntChecksumException
 
         finally:
             if not wait:
-                self.sp.setTimeout(timeout)
+                self.sp.timeout = (timeout)
 
         m = dispose(id, data)
         if self.rssi_logging:
@@ -255,14 +256,14 @@ class Ant:
             self.rssi_logging = False
 
     def log_rssi(self, message):
-        if message.has_key('device_number'):
+        if 'device_number' in message:
             # check if device number is already in dict, if not, create it
-            if not self.rssi_log.has_key(message['device_number']):
+            if message['device_number'] not in self.rssi_log:
                 self.rssi_log[message['device_number']] = []
 
-            if message.has_key('rssi'):
+            if 'rssi' in message:
                 self.rssi_log[message['device_number']].append(message['rssi'])
-            elif message.has_key('power_dbm'):
+            elif 'power_dbm' in message:
                 self.rssi_log[message['device_number']].append(message['power_dbm'])
 
     def wait_for_burst(self, timeout=None, channel=1, first_message=None):
@@ -287,8 +288,8 @@ class Ant:
                 raise AntTransferRxFailedException
 
             if (m['seq'] & 3) != nextseq:
-                print "Error!"
-                print m['seq'], nextseq, m['chan_seq']  # , m['data']
+                print("Error!")
+                print(m['seq'], nextseq, m['chan_seq'])  # , m['data']
                 raise AntBurstSequenceError
 
             nextseq = {0: 1,
@@ -316,7 +317,7 @@ class Ant:
             if name and message.name != name: return False
 
             for k in data.keys():
-                if not message.has_key(k): return False
+                if k not in message: return False
                 if message[k] != data[k]: return False
             return True
 
@@ -333,7 +334,7 @@ class Ant:
                 sys.stdout.flush()
             else:
                 if not self.quiet and not self.silent:
-                    print "unwanted message", m, "out of", (",".join([repr(r) for r in responses]))
+                    print("unwanted message", m, "out of", (",".join([repr(r) for r in responses])))
                 last_unwanted = m.name
 
         raise AntResponseTimeoutException
@@ -353,7 +354,7 @@ class Ant:
         t0 = time.time()
         while None == timeout or time.time() < t0 + timeout:
             m = self.receive_message()
-            if m and m.last_message.startswith('\x4e'): return m
+            if m and m.last_message.startswith(b'\x4e'): return m
 
         raise AntResponseTimeoutException
 
@@ -409,7 +410,7 @@ class Ant:
                 count = count + 1
                 self.send_message(ANT_Acknowledged_Data, [chan] + data)
                 if not self.silent:
-                    print "... (%d)" % count,
+                    print("... (%d)" % count, end='')
                     sys.stdout.flush()
                 while 1:
                     m = self.wait_for_response([['event_rx_fail', {'channel': chan}],
@@ -420,50 +421,50 @@ class Ant:
                                                timeout=10)
 
                     if not self.silent:
-                        print m
+                        print(m)
 
                     if m.name != 'event_rx_fail': break
 
                 if m.name == 'transfer_in_progress':
-                    # file('/tmp/stop_test',"w").write("1")
+                    # open('/tmp/stop_test',"w").write("1")
                     raise Exception("transfer in progress")
                 elif m.name == 'event_transfer_tx_completed':
                     if not self.silent:
-                        print "+",
+                        print("+", end='')
                         sys.stdout.flush()
                     return m
 
                 elif m.name == 'event_transfer_tx_failed':
                     if not self.silent:
-                        print "X",
+                        print("X", end='')
                         # self.__init__()
                         sys.stdout.flush()
 
                 elif m.name == 'event_rx_fail':
                     if not self.silent:
-                        print "rx_fail",
+                        print("rx_fail", end='')
                         sys.stdout.flush()
                     pass
 
                 elif m.name == 'event_rx_search_timeout' and m['channel'] == chan:
-                    print "Rx Search Timeout",
+                    print("Rx Search Timeout", end='')
                     sys.stdout.flush()
                     pass
 
             except AntResponseTimeoutException:
-                print "Response timeout.",
+                print("Response timeout.", end='')
                 sys.stdout.flush()
                 pass
             except AntWrongResponseException:
-                print "Wrong response.",
+                print("Wrong response.", end='')
                 sys.stdout.flush()
                 pass
             except AntBurstFailedError:
-                print "Burst fail.",
+                print("Burst fail.", end='')
                 sys.stdout.flush()
                 pass
             except AntNoDataException:
-                print "No data.",
+                print("No data.", end='')
                 sys.stdout.flush()
                 pass
 
@@ -495,8 +496,8 @@ class Ant:
         while 1:
             try:
                 data = indata[:]
-                sequence = 0;
-                if not self.quiet: print "starting ", count
+                sequence = 0
+                if not self.quiet: print("starting ", count)
                 while len(data):
                     if progress_func:
                         progress_func(len(data), len(indata))
@@ -507,7 +508,7 @@ class Ant:
                     if len(data) == 0:
                         sequence |= 4
 
-                    thispack = thispack + [chr(0xff)] * (8 - len(thispack))
+                    thispack = thispack + [0xff] * (8 - len(thispack))
 
                     try:
                         while not self.sp.getCTS():
@@ -533,8 +534,8 @@ class Ant:
                         m = self.receive_message(source=get_byte_and_print)
 
                         if not self.quiet:
-                            print "got message during burst:",
-                            print m
+                            print("got message during burst:", end='')
+                            print(m)
                         if interpret_response(m):
                             if progress_func:
                                 progress_func(len(data), len(indata))
@@ -546,7 +547,7 @@ class Ant:
                         if m['channel'] == 0:
                             break
 
-                    if not self.silent: print m
+                    if not self.silent: print(m)
 
                     if interpret_response(m):
                         if progress_func:
@@ -558,7 +559,7 @@ class Ant:
                 self.flush_msg_queue()
                 pass
 
-        print "done"
+        print("done")
 
     def get_ant_rev(self):
         self.send_message(ANT_Request_Message, [0, ANT_Version])
@@ -569,8 +570,8 @@ class Ant:
                                        ['invalid_message', {'message_id': 77}]], 10)
 
         if resp.name.startswith('ant_version'):
-            datakeys = filter(lambda x: x.startswith('data'), resp.keys())
-            datakeys.sort(lambda x, y: cmp(int(x[4:]), int(y[4:])))
+            datakeys = [x for x in resp.keys() if x.startswith('data')]
+            datakeys.sort(key=lambda x: int(x[4:]))
             string = ''.join([chr(resp[k]) for k in datakeys])
             resp['string'] = string
 
@@ -601,7 +602,7 @@ class Ant:
 
         if m.name == 'response_no_error':
             return m
-        raise AntWrongResponseException, m.name + ' for message type ' + ant_ids[message_id]
+        raise AntWrongResponseException(m.name + ' for message type ' + ant_ids[message_id])
 
     def assign_channel(self, channel, type, network, extended=None):
         if None == extended:
@@ -690,18 +691,18 @@ class Ant:
         self.wait_no_error(0, ANT_Set_Test_Mode)
 
     def inner_probe(self):
-        timeout = self.sp.getTimeout()
-        self.sp.setTimeout(0.1)
+        timeout = self.sp.timeout
+        self.sp.timeout = (0.1)
         try:
             capabilities = self.get_capabilities()
         except AntNoDataException:
-            self.sp.setTimeout(timeout)
+            self.sp.timeout = (timeout)
             return False
         except AntChecksumException:
-            self.sp.setTimeout(timeout)
+            self.sp.timeout = (timeout)
             return False
 
-        self.sp.setTimeout(timeout)
+        self.sp.timeout = (timeout)
         return True
 
     def probe(self, timeout=10):
@@ -713,7 +714,7 @@ class Ant:
 
     def interpret_message(self, id, msgdata):
 
-        m = self.messages.new_message(''.join([chr(x) for x in [id] + msgdata]))
+        m = self.messages.new_message(bytes([id] + msgdata))
 
         if m:
             t = time.time()
@@ -721,7 +722,7 @@ class Ant:
             m['dt'] = t - self.t0
 
         if False == m and self.quiet == False:
-            print "unknown message 0x%x [%s]" % (id, ', '.join(["0x%x" % z for z in msgdata]))
+            print("unknown message 0x%x [%s]" % (id, ', '.join(["0x%x" % z for z in msgdata])))
         return m
 
 
@@ -760,10 +761,10 @@ def guess_ant_serial_port():
                         '/dev/cu.ANTUSBStick.slabvcp']:
         try:
             sp = open_serial(serial_name)
-            print 'Opened serial connection with Ant+ device on %s' % serial_name
+            print('Opened serial connection with Ant+ device on %s' % serial_name)
             return sp
         except Exception as e:
-            print e
+            print(e)
             pass
 
     # import ap2
@@ -772,7 +773,7 @@ def guess_ant_serial_port():
     # except ValueError:
     #    pass
 
-    raise Exception, "No serial port found"
+    raise Exception("No serial port found")
 
 
 import socket
@@ -785,8 +786,8 @@ class SocketProxy:
         self.write = sock.sendall
         self.portstr = "socket"
 
-        # self.logfd=file('/tmp/socket_rx_log','w')
-        self.retbuf = ''
+        # self.logfd=open('/tmp/socket_rx_log','w')
+        self.retbuf = b''
 
     def read(self, ct):
         result = self.sock.recv(ct)
@@ -851,7 +852,7 @@ def try_connecting():
 def quicktest():
     a = Ant()
     a.auto_init()
-    print a.get_capabilities()
+    print(a.get_capabilities())
 
 
 if __name__ == "__main__":

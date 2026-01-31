@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import os
 import re
 
@@ -75,13 +77,13 @@ class Kettler():
     def __init__(self, serial_port, debug=False):
         self.serial_port = serial_port
         self.debug = debug
-        self.GET_ID = "ID\r\n"
-        self.GET_STATUS = "ST\r\n"
+        self.GET_ID = b"ID\r\n"
+        self.GET_STATUS = b"ST\r\n"
 
     def rpc(self, message):
         self.serial_port.write(message)
         self.serial_port.flush()
-        response = self.serial_port.readline().rstrip()  # rstrip trims trailing whitespace
+        response = self.serial_port.readline().decode('ascii').rstrip()  # rstrip trims trailing whitespace
         return response
 
     def getId(self):

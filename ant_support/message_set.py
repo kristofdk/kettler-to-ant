@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 """ Rather than maintain a growing number of confusing scripts, I'm
 making a domain-specific language to describe ANT messages.
 
@@ -30,11 +30,12 @@ or just:
 
 import struct
 import sys
+from functools import reduce
 
 
 class AntTypeException(Exception):
     def __init__(self, type):
-        print type, "is unknown"
+        print(type, "is unknown")
 
 
 class AccumValue:
@@ -203,7 +204,7 @@ class AntMessageType:
         return sum([s.width for s in self.values])
 
     def __getitem__(self, query):
-        if self.byname.has_key(query):
+        if query in self.byname:
             return self.byname[query].value
         if query.endswith("_prev"):
             actual_query = query[:-len("_prev")]
@@ -211,7 +212,7 @@ class AntMessageType:
         return self.extravalues[query]
 
     def __setitem__(self, key, value):
-        if self.byname.has_key(key):
+        if key in self.byname:
             raise KeyError
         self.extravalues[key] = value
 
@@ -220,9 +221,9 @@ class AntMessageType:
                 [v.accum_value.name for v in self.values
                  if 'accum_value' in dir(v)] +
                 [c.name for c in self.calculations] +
-                self.extravalues.keys())  # ignores don't care and fixed values
+                list(self.extravalues.keys()))  # ignores don't care and fixed values
 
-    def has_key(self, key):
+    def __contains__(self, key):
         return key in self.keys()
 
     def test(self, message):  # message is list-formatted Ant message
@@ -280,7 +281,7 @@ class AntMessageType:
         return '\'%s\':\n%s { %s }' % (self.name, offset, glue.join(["'%s':%s" % (k, self[k]) for k in self.keys()]))
 
 
-# lpf=file("last_power","w")
+# lpf=open("last_power","w")
 last_power = (None, None)
 
 
@@ -289,7 +290,7 @@ def set_last_power(c):
     raw, power = struct.unpack("<Hh", c)
     power = power * (0.01)
     last_power = power, raw
-    # print >>lpf, last_power
+    # print(last_power, file=lpf)
 
 
 class MessageSet:
@@ -339,21 +340,21 @@ class MessageSet:
     def keys(self):
         return self.messages_keys
 
-    def has_key(self, key):
-        return self.messages.has_key(key)
+    def __contains__(self, key):
+        return key in self.messages
 
     def __getitem__(self, query):
         return self.messages[query]
 
     def check_rssi_message(self, message):
         # RSSI message, transform to regular message
-        m_c = map(ord, message)
-        # print "m_c:",map(lambda x:"%02X"%x,m_c)
+        m_c = list(message)  # In Python 3, bytes are already iterable as ints
+        # print("m_c:", ["%02X" % x for x in m_c])
         # ANTRCT RSSI Broadcast Data, Ack Data,Burst Data
         if len(m_c) == 18 and m_c[0] in [0xc1, 0xc2, 0xc3]:
             # print 'ANTRCT RSSI Broadcast Data, Ack Data,Burst Data'
             replacement_message = [m_c[0] - (0xc1 - 0x4e), m_c[1]] + m_c[10:]
-            mess = self._new_message(''.join(map(chr, replacement_message)))
+            mess = self._new_message(bytes(replacement_message))
             mess['channel_number'] = m_c[1]
             mess['device_number'] = m_c[2] + (m_c[3] << 8)
             mess['device_type_id'] = m_c[4]
@@ -374,7 +375,7 @@ class MessageSet:
             replacement_message = m_c[0:4]
             replacement_message[3] = 0x05  ##This is a little hackey, makes the
             # message match the generic 'event_transfer_tx_completed' message
-            mess = self._new_message(''.join(map(chr, replacement_message)))
+            mess = self._new_message(bytes(replacement_message))
             mess['power_raw'] = m_c[4] + (m_c[5] << 8)
             mess['power_dbm'] = (m_c[6] + (m_c[7] << 8))
             if m_c[7] & 0x80:
@@ -387,7 +388,7 @@ class MessageSet:
             # this is the new style of rssi messages (extended, rssi only)
             # print "m_c:",m_c
             replacement_message = m_c[0:10]  # 0x10 --> 0x05
-            mess = self._new_message(''.join(map(chr, replacement_message)))
+            mess = self._new_message(bytes(replacement_message))
             mess['msg_type'] = m_c[11]
             if m_c[12] & 0x80:
                 mess['rssi'] = m_c[12] - 0x100
@@ -404,7 +405,7 @@ class MessageSet:
             # this is the new style of rssi messages (extended, rssi only)
             # print "m_c:",m_c
             replacement_message = m_c[0:10]
-            mess = self._new_message(''.join(map(chr, replacement_message)))
+            mess = self._new_message(bytes(replacement_message))
             mess['device_number'] = m_c[12] * 256 + m_c[11]
             mess['device_type'] = m_c[13]
             mess['transmission_type'] = m_c[14]
@@ -424,7 +425,7 @@ class MessageSet:
             # this is the new style of rssi messages (extended, rssi only)
             # print "m_c:",m_c
             replacement_message = m_c[0:10]
-            mess = self._new_message(''.join(map(chr, replacement_message)))
+            mess = self._new_message(bytes(replacement_message))
             mess['device_number'] = m_c[12] * 256 + m_c[11]
             mess['device_type'] = m_c[13]
             mess['transmission_type'] = m_c[14]
@@ -443,7 +444,7 @@ class MessageSet:
         elif m_c[0] in [0x4e, 0x4f, 0x50] and len(m_c) > 10 and m_c[10] in [0x80, 0xe0]:
             "Flagged extended message"
             replacement_message = m_c[0:10]
-            mess = self._new_message(''.join(map(chr, replacement_message)))
+            mess = self._new_message(bytes(replacement_message))
             mess['device_number'] = m_c[11] + (m_c[12] << 8)
             mess['device_type_id'] = m_c[13]
             mess['transmission_type'] = m_c[14]
@@ -470,4 +471,4 @@ class MessageSet:
 import pprint
 
 if __name__ == '__main__':
-    print "implement me"
+    print("implement me")
