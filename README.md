@@ -1,12 +1,95 @@
-# Kettler Ant+ Support
+# Kettler ANT+ Adapter
 
-This project makes a Kettler Racer 9 usable with any software requiring Ant+, for example Zwift or Sufferfest.
+This project makes a Kettler Racer 9 usable with any software requiring ANT+, such as Zwift or Sufferfest.
 
-It reads power and cadence data from a Kettler indoor bike over USB (or bluetooth, though that's harder to get set up), and writes that to an Ant+ dongle.
+It reads power and cadence data from a Kettler indoor bike over USB (or Bluetooth) and broadcasts it via an ANT+ USB dongle.
 
-It works on Mac and Raspberry Pi, with the following dependencies:
-* Python 2 (tested with 2.7)
-* [pyserial](https://github.com/pyserial/pyserial) 2.7
+## Requirements
 
+- Python 3.8+ (tested with Python 3.14)
+- ANT+ USB stick (Dynastream ANTUSB2 or ANTUSB-m recommended)
+- Kettler indoor bike with serial interface
 
-Just run `kettler-ant-adapter.py`. It tries to use any USB device at `/dev/.*USB.*`.
+## Installation
+
+```bash
+pip install -r requirements.txt
+```
+
+### Linux
+
+On Linux, you need to install udev rules for the ANT+ USB stick:
+
+```bash
+sudo python -m openant.udev_rules
+```
+
+### Dependencies
+
+- [openant](https://github.com/Tigge/openant) - ANT+ communication library
+- [pyserial](https://github.com/pyserial/pyserial) - Serial communication with Kettler bike
+
+## Usage
+
+Set the ANT+ network key as an environment variable (required):
+
+```bash
+export ANT_PLUS_NETWORK_KEY="B9 A5 21 FB BD 72 C3 45"
+```
+
+The standard ANT+ network key can be obtained from [thisisant.com](https://www.thisisant.com/developer/ant-plus/ant-plus-basics/network-keys).
+
+Then run:
+
+```bash
+python kettler_ant_adapter.py
+```
+
+The adapter will:
+1. Auto-detect your Kettler bike on any available USB serial port
+2. Auto-detect your ANT+ USB stick
+3. Broadcast power and cadence data as an ANT+ power meter
+
+## Platform Support
+
+- **Linux** - Full support (Raspberry Pi, Ubuntu, etc.)
+- **macOS** - Full support
+- **Windows** - Full support
+
+## Project Structure
+
+```
+├── kettler_ant_adapter.py    # Main entry point
+├── components/
+│   ├── ant.py                # PowerModel data class
+│   ├── ant_broadcaster.py    # ANT+ power meter broadcaster
+│   ├── ant_writer.py         # ANT+ transmission handler
+│   └── kettler_serial.py     # Kettler serial communication
+└── ant_support/
+    ├── ant.py                # ANT+ protocol (openant wrapper)
+    ├── ant_messages.py       # ANT message definitions
+    ├── ant_sport_messages.py # ANT+ sport message definitions
+    └── message_set.py        # Message parsing framework
+```
+
+## Troubleshooting
+
+### ANT+ USB stick not detected
+
+- Ensure the USB stick is plugged in
+- On Linux, verify udev rules are installed: `sudo python -m openant.udev_rules`
+- Check USB permissions or run with sudo
+
+### Kettler not detected
+
+- Check that the Kettler is powered on and connected via USB
+- The adapter scans for USB serial devices automatically
+- On Linux, you may need to add your user to the `dialout` group:
+  ```bash
+  sudo usermod -a -G dialout $USER
+  ```
+
+### Network key error
+
+- Ensure `ANT_PLUS_NETWORK_KEY` environment variable is set
+- Format: space-separated hex pairs (e.g., "B9 A5 21 FB BD 72 C3 45")
