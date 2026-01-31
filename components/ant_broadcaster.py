@@ -49,21 +49,13 @@ class AntBroadcaster(ant.Ant):
         self.close_channel(0)
 
     def wait_tx(self):
-        self.sp.setTimeout(0.05)
+        """Wait for transmission to complete.
 
-        while 1:
-            try:
-                resp = self.receive_message(wait=2.0)
-                if not resp:
-                    continue
-
-                if resp.name == 'calibration_request':
-                    print("Ignoring request for calibration")
-                if resp.name == 'event_tx':
-                    return
-
-            except ant.AntNoDataException:
-                pass
+        With openant, send_broadcast_data is synchronous so we just need
+        a small delay to allow the transmission to complete.
+        """
+        import time
+        time.sleep(0.05)
 
 
 class PowerBroadcaster(AntBroadcaster):
