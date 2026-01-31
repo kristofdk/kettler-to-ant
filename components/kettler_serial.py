@@ -1,54 +1,76 @@
 #!/usr/bin/env python3
 
-import os
-import re
+import sys
 
 from serial import Serial, PARITY_NONE
+from serial.tools import list_ports
 
 from components.ant import PowerModel
 
 
+def get_serial_ports():
+    """Returns a list of available serial port names on any platform."""
+    return [port.device for port in list_ports.comports()]
+
+
 def find_kettler_bluetooth(debug):
-    "returns a Kettler instance for the first Kettler serial port found that replies to ID and ST"
+    """Returns a Kettler instance for the first Kettler Bluetooth serial port found that replies to ID and ST."""
 
-    print("Looking for serial ports for a Kettler device...")
+    print("Looking for Kettler Bluetooth device...")
 
-    candidates = [f for f in os.listdir("/dev/") if
-                  re.match(r'cu\.KETTLER[0-9A-Z]+-SerialPort', f)]
+    # Look for ports with KETTLER in the description or hardware ID
+    candidates = []
+    for port in list_ports.comports():
+        port_info = f"{port.device} {port.description} {port.hwid}".upper()
+        if "KETTLER" in port_info or "BLUETOOTH" in port_info:
+            candidates.append(port.device)
+
+    # If no specific matches, try all available ports
+    if not candidates:
+        candidates = get_serial_ports()
 
     print("Found %s candidates" % len(candidates))
 
-    for c in candidates:
-        print("Trying: [%s]..." % c)
+    for serial_name in candidates:
+        print("Trying: [%s]..." % serial_name)
         try:
-            serial_name = "/dev/" + c
             serial_port = Serial(serial_name, timeout=1)
             kettler = Kettler(serial_port, debug)
             kettler_id = kettler.getId()
             if len(kettler_id) > 0:
                 print("Connected to Kettler [%s] at [%s]" % (kettler_id, serial_name))
                 return kettler
+            serial_port.close()
         except Exception as e:
             print(e)
-            pass
 
-    raise Exception("No serial port found")
+    raise Exception("No Kettler Bluetooth device found")
 
 
 def find_kettler_usb(debug):
-    "returns a Kettler instance for the first Kettler serial port found that replies to ID and ST"
+    """Returns a Kettler instance for the first Kettler USB serial port found that replies to ID and ST."""
 
-    print("Looking for serial ports for a Kettler device...")
+    print("Looking for Kettler USB device...")
 
-    candidates = [f for f in os.listdir("/dev/") if
-                  re.match(r'.*USB.*', f)]
+    # Look for USB serial ports
+    candidates = []
+    for port in list_ports.comports():
+        port_info = f"{port.device} {port.description} {port.hwid}".upper()
+        # On Windows: look for USB ports (often have "USB" in description)
+        # On Linux: /dev/ttyUSB* devices
+        # On macOS: /dev/cu.usbserial* or /dev/tty.usbserial*
+        if "USB" in port_info or "SERIAL" in port_info:
+            candidates.append(port.device)
+
+    # If no USB-specific matches found, try all available ports
+    if not candidates:
+        candidates = get_serial_ports()
 
     print("Found %s candidates" % len(candidates))
 
-    for c in candidates:
-        print("Trying: [%s]..." % c)
+    for serial_name in candidates:
+        print("Trying: [%s]..." % serial_name)
         try:
-            serial_name = "/dev/" + c
             serial_port = Serial(serial_name,
                                  baudrate=57600,
                                  parity=PARITY_NONE,
@@ -58,12 +80,12 @@ def find_kettler_usb(debug):
             if len(kettler_id) > 0:
                 print("Connected to Kettler [%s] at [%s]" % (kettler_id, serial_name))
                 return kettler
+            serial_port.close()
         except Exception as e:
-            print("Failed to connect to [%s]")
+            print("Failed to connect to [%s]" % serial_name)
             print(e)
-            pass
 
-    raise Exception("No serial port found")
+    raise Exception("No Kettler USB device found")
 
 
 def close_safely(thing):
