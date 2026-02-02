@@ -5,7 +5,7 @@ import sys
 from serial import Serial, PARITY_NONE
 from serial.tools import list_ports
 
-from components.ant import PowerModel
+from components.ant import KettlerModel
 
 
 def get_serial_ports():
@@ -136,7 +136,7 @@ class Kettler():
 
             if self.debug and destPower != realPower:
                 print("Difference: destPower: %s  realPower: %s" % (destPower, realPower))
-            return PowerModel(realPower, cadence, heart_rate, speed, distance, energy, elapsed_time)
+            return KettlerModel(realPower, cadence, heart_rate, speed, distance, energy, elapsed_time)
         else:
             print("Received bad status string from Kettler: [%s]" % statusLine)
             return None

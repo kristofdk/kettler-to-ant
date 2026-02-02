@@ -9,7 +9,7 @@ from threading import Thread
 
 from components.ant_writer import PowerWriter, currentTimeMillis, sleep
 from components import kettler_serial
-from components.ant import PowerModel
+from components.ant import KettlerModel
 
 MAX_TIME_BETWEEN_UPDATES = 5000
 TRANSMIT_INTERVAL_MILLIS = 250
@@ -108,7 +108,7 @@ def readFromStdin(antWriter, debug):
                 receivedCadence = int(segments[1])
                 badLinesReceived = 0
                 emptyLinesReceived = 0
-                model = PowerModel(receivedPower, receivedCadence)
+                model = KettlerModel(receivedPower, receivedCadence)
                 antWriter.updateModel(model)
             elif len(line) == 0:
                 emptyLinesReceived += 1

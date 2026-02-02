@@ -4,7 +4,7 @@ import time
 
 from time import sleep
 
-from components.ant import PowerModel
+from components.ant import KettlerModel
 
 from .ant_broadcaster import PowerBroadcaster, HeartRateBroadcaster, SpeedBroadcaster, FitnessEquipmentBroadcaster
 
@@ -30,7 +30,7 @@ class PowerWriter:
         self.feAnt = FitnessEquipmentBroadcaster(networkKey, debug)
         self.debug = debug
         self.transmitIntervalSecs = transmitIntervalMillis / 1000.0
-        self.powerModel = PowerModel()
+        self.kettlerModel = KettlerModel()
         self.running = False
         self.died = False
         self.__markProgress()
@@ -66,10 +66,10 @@ class PowerWriter:
         print("Starting Ant+ writing loop...")
         try:
             while self.running:
-                self.__sendPower(self.powerModel.power, self.powerModel.cadence)
-                self.__sendHeartRate(self.powerModel.heart_rate)
-                self.__sendSpeed(self.powerModel.speed, self.powerModel.distance)
-                self.__sendFitnessEquipment(self.powerModel)
+                self.__sendPower(self.kettlerModel.power, self.kettlerModel.cadence)
+                self.__sendHeartRate(self.kettlerModel.heart_rate)
+                self.__sendSpeed(self.kettlerModel.speed, self.kettlerModel.distance)
+                self.__sendFitnessEquipment(self.kettlerModel)
                 self.__markProgress()
                 sleep(self.transmitIntervalSecs)
         except Exception as e:
@@ -84,13 +84,13 @@ class PowerWriter:
             self.feAnt.close()
 
     def updateModel(self, model):
-        self.powerModel.power = checkRange(0, model.power, 2048)
-        self.powerModel.cadence = checkRange(0, model.cadence, 255)
-        self.powerModel.heart_rate = checkRange(0, model.heart_rate, 255)
-        self.powerModel.speed = checkRange(0, model.speed, 9999)  # Max ~999.9 km/h
-        self.powerModel.distance = checkRange(0, model.distance, 65535)  # Kettler distance units
-        self.powerModel.energy = checkRange(0, model.energy, 65535)  # Energy in kJ
-        self.powerModel.elapsed_time = checkRange(0, model.elapsed_time, 65535)  # Time in seconds
+        self.kettlerModel.power = checkRange(0, model.power, 2048)
+        self.kettlerModel.cadence = checkRange(0, model.cadence, 255)
+        self.kettlerModel.heart_rate = checkRange(0, model.heart_rate, 255)
+        self.kettlerModel.speed = checkRange(0, model.speed, 9999)  # Max ~999.9 km/h
+        self.kettlerModel.distance = checkRange(0, model.distance, 65535)  # Kettler distance units
+        self.kettlerModel.energy = checkRange(0, model.energy, 65535)  # Energy in kJ
+        self.kettlerModel.elapsed_time = checkRange(0, model.elapsed_time, 65535)  # Time in seconds
 
     def start(self):
         self.running = True

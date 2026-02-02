@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 
-class PowerModel:
+class KettlerModel:
     def __init__(self, power=0, cadence=0, heart_rate=0, speed=0, distance=0, energy=0, elapsed_time=0):
         self.power = power
         self.cadence = cadence
