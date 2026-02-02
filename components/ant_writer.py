@@ -6,7 +6,7 @@ from time import sleep
 
 from components.ant import PowerModel
 
-from .ant_broadcaster import PowerBroadcaster
+from .ant_broadcaster import PowerBroadcaster, HeartRateBroadcaster
 
 
 def checkRange(min, value, max):
@@ -25,6 +25,7 @@ def currentTimeMillis():
 class PowerWriter:
     def __init__(self, transmitIntervalMillis, networkKey, debug=False):
         self.ant = PowerBroadcaster(networkKey, debug)
+        self.hrAnt = HeartRateBroadcaster(networkKey, debug)
         self.debug = debug
         self.transmitIntervalSecs = transmitIntervalMillis / 1000.0
         self.powerModel = PowerModel()
@@ -32,8 +33,8 @@ class PowerWriter:
         self.died = False
         self.__markProgress()
         if self.debug:
-            print("Set up PowerWriter with transmitIntervalSecs[%s] deviceId[%s]" % (
-                self.transmitIntervalSecs, self.ant.deviceId))
+            print("Set up PowerWriter with transmitIntervalSecs[%s] power deviceId[%s] hr deviceId[%s]" % (
+                self.transmitIntervalSecs, self.ant.deviceId, self.hrAnt.deviceId))
 
     def __markProgress(self):
         self.lastUpdate = currentTimeMillis()
@@ -41,11 +42,15 @@ class PowerWriter:
     def __sendPower(self, power, cadence):
         self.ant.broadcastPower(power, cadence)
 
+    def __sendHeartRate(self, heart_rate):
+        self.hrAnt.broadcastHeartRate(heart_rate)
+
     def __sendInLoop(self):
         print("Starting Ant+ writing loop...")
         try:
             while self.running:
                 self.__sendPower(self.powerModel.power, self.powerModel.cadence)
+                self.__sendHeartRate(self.powerModel.heart_rate)
                 self.__markProgress()
                 sleep(self.transmitIntervalSecs)
         except Exception as e:
@@ -55,10 +60,12 @@ class PowerWriter:
             if self.debug:
                 print("Closing send loop")
             self.ant.close()
+            self.hrAnt.close()
 
     def updateModel(self, model):
         self.powerModel.power = checkRange(0, model.power, 2048)
         self.powerModel.cadence = checkRange(0, model.cadence, 255)
+        self.powerModel.heart_rate = checkRange(0, model.heart_rate, 255)
 
     def start(self):
         self.running = True

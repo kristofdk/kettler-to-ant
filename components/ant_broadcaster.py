@@ -6,6 +6,10 @@ ANT_NETWORK = 1
 
 ANT_DEVICE_TYPE_POWER = 11
 ANT_DEVICE_TYPE_FITNESS_EQUIPMENT = 0x11
+ANT_DEVICE_TYPE_HEART_RATE = 120
+
+ANT_POWER_CHANNEL_PERIOD = 8182
+ANT_HRM_CHANNEL_PERIOD = 8070
 ANT_FITNESS_EQUIPMENT_TYPE_STATIONARY_BIKE = 21
 
 ANT_POWER_PROFILE_POwER_PAGE = 0x10
@@ -16,37 +20,55 @@ ANT_FITNESS_EQUIPMENT_PROFILE_TRAINER_DATA_PAGE = 0x19
 ANT_FITNESS_EQUIPMENT_PROFILE_TARGET_POWER_PAGE = 0x31  # head unit -> device
 
 
-class AntBroadcaster(ant.Ant):
-    def __init__(self, network_key, debug, device_type):
-        ant.Ant.__init__(self, quiet=not debug, silent=False)
+class AntBroadcaster:
+    """Base class for ANT+ broadcasters with shared ANT node."""
 
-        self.auto_init()
+    _shared_ant = None  # Class-level shared ANT instance
+
+    def __init__(self, network_key, debug, device_type, channel=0, channel_period=ANT_POWER_CHANNEL_PERIOD):
+        self.channel = channel
+        self.stopped = False
+
+        # Share a single ANT node across all broadcasters
+        if AntBroadcaster._shared_ant is None:
+            AntBroadcaster._shared_ant = ant.Ant(quiet=not debug, silent=False)
+            AntBroadcaster._shared_ant.auto_init()
+            AntBroadcaster._shared_ant.set_network_key(network=ANT_NETWORK, key=network_key)
+
+        self._ant = AntBroadcaster._shared_ant
 
         try:
-            self.close_channel(0)
+            self._ant.close_channel(channel)
         except ant.AntWrongResponseException:
             pass
 
-        self.assign_channel(channel=0,
-                            type=ANT_POWER_PROFILE_POwER_PAGE,
-                            network=ANT_NETWORK)
-        self.set_network_key(network=ANT_NETWORK, key=network_key)
+        self._ant.assign_channel(channel=channel,
+                                 type=ANT_POWER_PROFILE_POwER_PAGE,
+                                 network=ANT_NETWORK)
 
         self.deviceId = 12329 + device_type
-        print("Initialised broadcaster for deviceId[%s] of type[%s]" % (self.deviceId, device_type))
+        print("Initialised broadcaster for deviceId[%s] of type[%s] on channel[%s]" % (self.deviceId, device_type, channel))
 
-        self.set_channel_id(channel=0,
-                            device=self.deviceId,
-                            device_type_id=device_type,
-                            man_id=5)
-        self.set_channel_freq(0, 57)
-        self.set_channel_period(0, 8182)
-        self.set_channel_search_timeout(0, 40)
-        self.open_channel(0)
+        self._ant.set_channel_id(channel=channel,
+                                 device=self.deviceId,
+                                 device_type_id=device_type,
+                                 man_id=5)
+        self._ant.set_channel_freq(channel, 57)
+        self._ant.set_channel_period(channel, channel_period)
+        self._ant.set_channel_search_timeout(channel, 40)
+        self._ant.open_channel(channel)
+
+    def send_broadcast_data(self, channel, data):
+        """Send broadcast data on the specified channel."""
+        self._ant.send_broadcast_data(channel, data)
 
     def close(self):
+        """Close this broadcaster's channel."""
         self.stopped = True
-        self.close_channel(0)
+        try:
+            self._ant.close_channel(self.channel)
+        except ant.AntWrongResponseException:
+            pass
 
     def wait_tx(self):
         """Wait for transmission to complete.
@@ -87,7 +109,7 @@ class PowerBroadcaster(AntBroadcaster):
         if self.Debug or (power != self.lastPowerUpdate) or (cadence != self.lastCadenceUpdate):
             print("Sending data for device[%s]: %40s for power[%s] cadence[%s]" % (
                 self.deviceId, str(data), power, cadence))
-        self.send_broadcast_data(0, data)
+        self.send_broadcast_data(self.channel, data)
         self.lastPowerUpdate = power
         self.lastCadenceUpdate = cadence
         self.wait_tx()
@@ -121,7 +143,7 @@ class FitnessEquipmentBroadcaster(AntBroadcaster):
             capabilitiesBitField
         ]
 
-        self.send_broadcast_data(0, data)
+        self.send_broadcast_data(self.channel, data)
         self.wait_tx()
 
     def broadcastPower(self, power=0, cadence=0):
@@ -142,5 +164,56 @@ class FitnessEquipmentBroadcaster(AntBroadcaster):
         self.event_counter = (self.event_counter + 1) % 0xff
 
         print("sending standard data: " + str(data))
-        self.send_broadcast_data(0, data)
+        self.send_broadcast_data(self.channel, data)
+        self.wait_tx()
+
+
+class HeartRateBroadcaster(AntBroadcaster):
+    """Broadcasts heart rate data as an ANT+ HRM sensor."""
+
+    def __init__(self, network_key, debug):
+        AntBroadcaster.__init__(self, network_key, debug,
+                                device_type=ANT_DEVICE_TYPE_HEART_RATE,
+                                channel=1,
+                                channel_period=ANT_HRM_CHANNEL_PERIOD)
+        self.debug = debug
+        self.beat_count = 0
+        self.measurement_time = 0
+        self.last_heart_rate = -1
+
+    def broadcastHeartRate(self, heart_rate=0):
+        """
+        Broadcast heart rate data using ANT+ HRM profile Page 0.
+
+        ANT+ HRM Page 0 format (8 bytes):
+        - Byte 0: Data page number (0x00)
+        - Bytes 1-3: Reserved (0xFF)
+        - Bytes 4-5: Heart beat event time (1/1024 sec, uint16_le)
+        - Byte 6: Heart beat count (uint8, rollover at 255)
+        - Byte 7: Computed heart rate (uint8, 0-255 bpm)
+        """
+        # Update measurement time and beat count based on heart rate
+        if heart_rate > 0:
+            # Time between beats in 1/1024 second units
+            beat_interval = int((60.0 / heart_rate) * 1024)
+            self.measurement_time = (self.measurement_time + beat_interval) & 0xFFFF
+            self.beat_count = (self.beat_count + 1) & 0xFF
+
+        data = [
+            0x00,  # Page 0 (basic HR data page)
+            0xFF,  # Reserved
+            0xFF,  # Reserved
+            0xFF,  # Reserved
+            self.measurement_time & 0xFF,         # Beat event time LSB
+            (self.measurement_time >> 8) & 0xFF,  # Beat event time MSB
+            self.beat_count,                      # Heart beat count
+            int(heart_rate) & 0xFF                # Instant heart rate
+        ]
+
+        if self.debug or heart_rate != self.last_heart_rate:
+            print("Sending HR data for device[%s]: %s for hr[%s]" % (
+                self.deviceId, str(data), heart_rate))
+
+        self.send_broadcast_data(self.channel, data)
+        self.last_heart_rate = heart_rate
         self.wait_tx()

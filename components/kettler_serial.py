@@ -118,12 +118,13 @@ class Kettler():
 
         segments = statusLine.split()
         if len(segments) == 8:
+            heart_rate = int(segments[0])
             cadence = int(segments[1])
             destPower = int(segments[4])
             realPower = int(segments[7])
             if self.debug and destPower != realPower:
                 print("Difference: destPower: %s  realPower: %s" % (destPower, realPower))
-            return PowerModel(realPower, cadence)
+            return PowerModel(realPower, cadence, heart_rate)
         else:
             print("Received bad status string from Kettler: [%s]" % statusLine)
             return None
