@@ -98,3 +98,9 @@ ENV/
 *.ants
 *.bak
 
+# IDE
+.idea/
+
+# Claude Code
+.claude/
+
