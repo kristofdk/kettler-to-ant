@@ -93,3 +93,27 @@ The adapter will:
 
 - Ensure `ANT_PLUS_NETWORK_KEY` environment variable is set
 - Format: space-separated hex pairs (e.g., "B9 A5 21 FB BD 72 C3 45")
+
+### Windows: USB timeout errors (libusb0)
+
+If you see errors like `libusb0-dll:err [_usb_reap_async] timeout error`, the issue is that pyusb is using the old libusb0 backend instead of libusb1.
+
+**Fix:**
+
+1. Install the WinUSB driver for your ANT+ stick using [Zadig](https://zadig.akeo.ie/):
+   - Run Zadig as Administrator
+   - Go to **Options → List All Devices**
+   - Select your ANT+ USB stick
+   - Change driver to **WinUSB**
+   - Click "Replace Driver"
+
+2. Copy the libusb-1.0.dll to where Python can find it:
+   ```bash
+   python -c "import shutil; shutil.copy(r'.venv\Lib\site-packages\libusb\_platform\windows\x86_64\libusb-1.0.dll', r'.venv\Scripts\libusb-1.0.dll')"
+   ```
+
+3. Verify libusb1 is now available:
+   ```bash
+   python -c "import usb.backend.libusb1 as l1; print('libusb1:', l1.get_backend())"
+   ```
+   You should see a `_LibUSB object` instead of `None`.
