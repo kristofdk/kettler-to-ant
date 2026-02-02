@@ -46,8 +46,8 @@ class PowerWriter:
     def __sendHeartRate(self, heart_rate):
         self.hrAnt.broadcastHeartRate(heart_rate)
 
-    def __sendSpeed(self, speed):
-        self.speedAnt.broadcastSpeed(speed)
+    def __sendSpeed(self, speed, distance):
+        self.speedAnt.broadcastSpeed(speed, distance)
 
     def __sendInLoop(self):
         print("Starting Ant+ writing loop...")
@@ -55,7 +55,7 @@ class PowerWriter:
             while self.running:
                 self.__sendPower(self.powerModel.power, self.powerModel.cadence)
                 self.__sendHeartRate(self.powerModel.heart_rate)
-                self.__sendSpeed(self.powerModel.speed)
+                self.__sendSpeed(self.powerModel.speed, self.powerModel.distance)
                 self.__markProgress()
                 sleep(self.transmitIntervalSecs)
         except Exception as e:
@@ -73,6 +73,7 @@ class PowerWriter:
         self.powerModel.cadence = checkRange(0, model.cadence, 255)
         self.powerModel.heart_rate = checkRange(0, model.heart_rate, 255)
         self.powerModel.speed = checkRange(0, model.speed, 9999)  # Max ~999.9 km/h
+        self.powerModel.distance = checkRange(0, model.distance, 65535)  # Kettler distance units
 
     def start(self):
         self.running = True

@@ -222,10 +222,13 @@ class HeartRateBroadcaster(AntBroadcaster):
 
 
 class SpeedBroadcaster(AntBroadcaster):
-    """Broadcasts speed data as an ANT+ Bike Speed sensor."""
+    """Broadcasts speed/distance data as an ANT+ Bike Speed sensor."""
 
     # Typical bike wheel circumference in meters (700x25c road tire)
     WHEEL_CIRCUMFERENCE = 2.105
+
+    # Kettler distance unit in meters (typically 100m per unit, adjust if needed)
+    KETTLER_DISTANCE_UNIT_METERS = 100
 
     def __init__(self, network_key, debug):
         AntBroadcaster.__init__(self, network_key, debug,
@@ -233,13 +236,13 @@ class SpeedBroadcaster(AntBroadcaster):
                                 channel=2,
                                 channel_period=ANT_SPEED_CHANNEL_PERIOD)
         self.debug = debug
-        self.cumulative_revs = 0
         self.measurement_time = 0
         self.last_speed = -1
+        self.last_distance = -1
 
-    def broadcastSpeed(self, speed_tenths_kmh=0):
+    def broadcastSpeed(self, speed_tenths_kmh=0, distance_kettler_units=0):
         """
-        Broadcast speed data using ANT+ Bike Speed profile.
+        Broadcast speed/distance data using ANT+ Bike Speed profile.
 
         ANT+ Speed sensor format (8 bytes):
         - Bytes 0-3: Reserved (0xFF)
@@ -248,21 +251,20 @@ class SpeedBroadcaster(AntBroadcaster):
 
         Args:
             speed_tenths_kmh: Speed in 0.1 km/h units (e.g., 250 = 25.0 km/h)
+            distance_kettler_units: Distance in Kettler units (likely 100m per unit)
         """
-        # Convert speed from 0.1 km/h to m/s: (speed / 10) * (1000 / 3600)
-        speed_ms = speed_tenths_kmh / 36.0
+        # Calculate cumulative wheel revolutions from Kettler distance
+        # This ensures distance matches what Kettler reports
+        distance_meters = distance_kettler_units * self.KETTLER_DISTANCE_UNIT_METERS
+        cumulative_revs = distance_meters / self.WHEEL_CIRCUMFERENCE
 
-        # Calculate wheel revolutions per second
+        # Advance measurement time based on speed (for proper speed calculation by receiver)
+        speed_ms = speed_tenths_kmh / 36.0  # Convert 0.1 km/h to m/s
         if speed_ms > 0:
-            revs_per_second = speed_ms / self.WHEEL_CIRCUMFERENCE
-            # Time between broadcasts is ~0.25s (250ms interval)
-            # Add fractional revolutions since last broadcast
-            revs_this_interval = revs_per_second * 0.25
-            self.cumulative_revs = (self.cumulative_revs + revs_this_interval) % 65536
-            # Advance measurement time by 0.25s in 1/1024 second units
+            # Advance time by 0.25s in 1/1024 second units
             self.measurement_time = (self.measurement_time + 256) & 0xFFFF
 
-        wheel_revs_int = int(self.cumulative_revs)
+        wheel_revs_int = int(cumulative_revs) & 0xFFFF  # 16-bit rollover
 
         data = [
             0xFF,  # Reserved
@@ -275,10 +277,11 @@ class SpeedBroadcaster(AntBroadcaster):
             (wheel_revs_int >> 8) & 0xFF          # Cumulative revs MSB
         ]
 
-        if self.debug or speed_tenths_kmh != self.last_speed:
-            print("Sending Speed data for device[%s]: %s for speed[%s] (%.1f km/h)" % (
-                self.deviceId, str(data), speed_tenths_kmh, speed_tenths_kmh / 10.0))
+        if self.debug or speed_tenths_kmh != self.last_speed or distance_kettler_units != self.last_distance:
+            print("Sending Speed data for device[%s]: %s speed[%.1f km/h] dist[%dm]" % (
+                self.deviceId, str(data), speed_tenths_kmh / 10.0, distance_meters))
 
         self.send_broadcast_data(self.channel, data)
         self.last_speed = speed_tenths_kmh
+        self.last_distance = distance_kettler_units
         self.wait_tx()
