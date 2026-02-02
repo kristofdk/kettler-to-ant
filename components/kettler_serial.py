@@ -123,10 +123,20 @@ class Kettler():
             speed = int(segments[2])     # Speed in 0.1 km/h units
             distance = int(segments[3])  # Distance in Kettler units (likely 100m per unit)
             destPower = int(segments[4])
+            energy = int(segments[5])    # Energy in kJ
+            time_str = segments[6]       # Elapsed time in MM:SS format
             realPower = int(segments[7])
+
+            # Parse elapsed time from MM:SS to seconds
+            try:
+                parts = time_str.split(':')
+                elapsed_time = int(parts[0]) * 60 + int(parts[1])
+            except (ValueError, IndexError):
+                elapsed_time = 0
+
             if self.debug and destPower != realPower:
                 print("Difference: destPower: %s  realPower: %s" % (destPower, realPower))
-            return PowerModel(realPower, cadence, heart_rate, speed, distance)
+            return PowerModel(realPower, cadence, heart_rate, speed, distance, energy, elapsed_time)
         else:
             print("Received bad status string from Kettler: [%s]" % statusLine)
             return None

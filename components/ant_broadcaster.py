@@ -12,6 +12,7 @@ ANT_DEVICE_TYPE_SPEED = 123
 ANT_POWER_CHANNEL_PERIOD = 8182
 ANT_HRM_CHANNEL_PERIOD = 8070
 ANT_SPEED_CHANNEL_PERIOD = 8118
+ANT_FE_CHANNEL_PERIOD = 8192
 ANT_FITNESS_EQUIPMENT_TYPE_STATIONARY_BIKE = 21
 
 ANT_POWER_PROFILE_POwER_PAGE = 0x10
@@ -118,54 +119,136 @@ class PowerBroadcaster(AntBroadcaster):
 
 
 class FitnessEquipmentBroadcaster(AntBroadcaster):
-    def __init__(self, filename, NetworkKey, Debug):
-        AntBroadcaster.__init__(self, NetworkKey, Debug, deviceType=ANT_DEVICE_TYPE_FITNESS_EQUIPMENT)
+    """Broadcasts fitness equipment data including energy and elapsed time."""
 
-    def broadcastGeneralDataPage(self, elapsedTimeSeconds, distanceMetres, speedMetresPerSec, heartRate):
-        # general data page for a FitnessEquipment. This doesn't need an event counter
+    # Kettler distance unit in meters
+    KETTLER_DISTANCE_UNIT_METERS = 100
 
-        # speed in units of 0.001m/s, rollover at 65534
-        speedInFunnyUnits = speedMetresPerSec * 1000
-        speedLsb = speedInFunnyUnits & 0xff
-        speedMsb = (speedInFunnyUnits >> 8) & 0xff
+    def __init__(self, network_key, debug):
+        AntBroadcaster.__init__(self, network_key, debug,
+                                device_type=ANT_DEVICE_TYPE_FITNESS_EQUIPMENT,
+                                channel=3,
+                                channel_period=ANT_FE_CHANNEL_PERIOD)
+        self.debug = debug
+        self.page_toggle = 0
+        self.event_counter = 0
+        self.accumulated_power = 0
+        self.last_values = {}
 
-        capabilitiesBitField = (
-                2 << 4 |  # HR data source is 5kHz HRM
-                1 << 2 |  # distance transmission is enabled
-                1  # speed is virtual, not real
+    def broadcast(self, elapsed_time_secs=0, distance_kettler=0, speed_tenths_kmh=0,
+                  heart_rate=0, power=0, cadence=0, energy_kj=0):
+        """
+        Broadcast fitness equipment data, alternating between pages.
+
+        Args:
+            elapsed_time_secs: Elapsed time in seconds
+            distance_kettler: Distance in Kettler units (100m per unit)
+            speed_tenths_kmh: Speed in 0.1 km/h units
+            heart_rate: Heart rate in BPM
+            power: Power in watts
+            cadence: Cadence in RPM
+            energy_kj: Energy in kJ
+        """
+        # Alternate between General FE Data (0x10) and Stationary Bike Data (0x15)
+        if self.page_toggle % 2 == 0:
+            self._broadcastGeneralDataPage(elapsed_time_secs, distance_kettler,
+                                           speed_tenths_kmh, heart_rate)
+        else:
+            self._broadcastStationaryBikePage(cadence, power, energy_kj)
+
+        self.page_toggle += 1
+
+    def _broadcastGeneralDataPage(self, elapsed_time_secs, distance_kettler, speed_tenths_kmh, heart_rate):
+        """
+        Broadcast General FE Data Page (0x10).
+
+        Format:
+        - Byte 0: Data page number (0x10)
+        - Byte 1: Equipment type (21 = stationary bike)
+        - Byte 2: Elapsed time (0.25s units, rollover at 64s)
+        - Byte 3: Distance traveled (meters, rollover at 256m)
+        - Bytes 4-5: Speed (0.001 m/s units, uint16_le)
+        - Byte 6: Heart rate (0xFF if invalid)
+        - Byte 7: Capabilities + FE state
+        """
+        # Convert distance from Kettler units to meters
+        distance_m = distance_kettler * self.KETTLER_DISTANCE_UNIT_METERS
+
+        # Convert speed from 0.1 km/h to 0.001 m/s: (speed/10) * (1000/3600) * 1000
+        speed_mms = int(speed_tenths_kmh * 1000 / 36)
+
+        # Capabilities: HR from ANT+, distance enabled, virtual speed
+        capabilities = (
+            0x2 << 4 |  # HR data source: ANT+ HRM
+            0x1 << 2 |  # Distance enabled
+            0x0        # Speed is real (not virtual)
         )
+        # FE State: In Use (3)
+        fe_state = 3 << 4
 
         data = [
-            ANT_FITNESS_EQUIPMENT_PROFILE_GENERAL_DATA_PAGE,
-            ANT_FITNESS_EQUIPMENT_TYPE_STATIONARY_BIKE,
-            (elapsedTimeSeconds % 64) * 4,  # time in units of 0.25s, rollover at 64s
-            distanceMetres % 256,  # distance in metres, rollover at 256m
-            speedLsb,
-            speedMsb,
-            capabilitiesBitField
+            ANT_FITNESS_EQUIPMENT_PROFILE_GENERAL_DATA_PAGE,  # 0x10
+            ANT_FITNESS_EQUIPMENT_TYPE_STATIONARY_BIKE,       # 21
+            int(elapsed_time_secs * 4) & 0xFF,                # Time in 0.25s, rollover 64s
+            int(distance_m) & 0xFF,                           # Distance in m, rollover 256m
+            speed_mms & 0xFF,                                 # Speed LSB
+            (speed_mms >> 8) & 0xFF,                          # Speed MSB
+            int(heart_rate) if heart_rate > 0 else 0xFF,      # HR or invalid
+            capabilities | fe_state                           # Capabilities + state
         ]
+
+        current = ('general', elapsed_time_secs, distance_kettler, speed_tenths_kmh, heart_rate)
+        if self.debug or current != self.last_values.get('general'):
+            print("FE General: time[%ds] dist[%dm] speed[%.1f km/h] hr[%d]" % (
+                elapsed_time_secs, distance_m, speed_tenths_kmh / 10.0, heart_rate))
+        self.last_values['general'] = current
 
         self.send_broadcast_data(self.channel, data)
         self.wait_tx()
 
-    def broadcastPower(self, power=0, cadence=0):
-        self.power_accum += power
-        balance = 50
+    def _broadcastStationaryBikePage(self, cadence, power, energy_kj):
+        """
+        Broadcast Stationary Bike Specific Data Page (0x15).
+
+        Format:
+        - Byte 0: Data page number (0x15)
+        - Byte 1: Update event count
+        - Byte 2: Instantaneous cadence (RPM)
+        - Bytes 3-4: Accumulated power (watts, uint16_le)
+        - Bytes 5-6: Instantaneous power (watts, uint16_le, 0.5W resolution on bits 0-11)
+        - Byte 7: Flags + FE state
+        """
+        self.event_counter = (self.event_counter + 1) & 0xFF
+        self.accumulated_power = (self.accumulated_power + power) & 0xFFFF
+
+        # Instantaneous power with 1W resolution (bits 0-11), bits 12-15 unused
+        instant_power = int(power) & 0x0FFF
+
+        # Flags: power calibration not required
+        flags = 0x00
+        # FE State: In Use (3)
+        fe_state = 3 << 4
 
         data = [
-            ANT_POWER_PROFILE_POwER_PAGE,
-            (self.event_counter + 128) & 0xff,
-            0x80 | balance,
-            int(cadence),  # 0xff, # instant cadence
-            int(self.power_accum) & 0xff,
-            (int(self.power_accum) >> 8) & 0xff,
-            int(power) & 0xff,
-            (int(power) >> 8) & 0xff
+            ANT_FITNESS_EQUIPMENT_PROFILE_STATIONARY_BIKE_DATA_PAGE,  # 0x15
+            self.event_counter,
+            int(cadence) & 0xFF,
+            self.accumulated_power & 0xFF,
+            (self.accumulated_power >> 8) & 0xFF,
+            instant_power & 0xFF,
+            (instant_power >> 8) & 0x0F,  # Only lower 4 bits used for power
+            flags | fe_state
         ]
 
-        self.event_counter = (self.event_counter + 1) % 0xff
+        # Convert kJ to kcal for display (1 kJ ≈ 0.239 kcal)
+        energy_kcal = int(energy_kj * 0.239)
 
-        print("sending standard data: " + str(data))
+        current = ('bike', cadence, power, energy_kj)
+        if self.debug or current != self.last_values.get('bike'):
+            print("FE Bike: cadence[%d] power[%dW] energy[%d kJ / %d kcal]" % (
+                cadence, power, energy_kj, energy_kcal))
+        self.last_values['bike'] = current
+
         self.send_broadcast_data(self.channel, data)
         self.wait_tx()
 

@@ -6,7 +6,7 @@ from time import sleep
 
 from components.ant import PowerModel
 
-from .ant_broadcaster import PowerBroadcaster, HeartRateBroadcaster, SpeedBroadcaster
+from .ant_broadcaster import PowerBroadcaster, HeartRateBroadcaster, SpeedBroadcaster, FitnessEquipmentBroadcaster
 
 
 def checkRange(min, value, max):
@@ -27,6 +27,7 @@ class PowerWriter:
         self.ant = PowerBroadcaster(networkKey, debug)
         self.hrAnt = HeartRateBroadcaster(networkKey, debug)
         self.speedAnt = SpeedBroadcaster(networkKey, debug)
+        self.feAnt = FitnessEquipmentBroadcaster(networkKey, debug)
         self.debug = debug
         self.transmitIntervalSecs = transmitIntervalMillis / 1000.0
         self.powerModel = PowerModel()
@@ -34,8 +35,9 @@ class PowerWriter:
         self.died = False
         self.__markProgress()
         if self.debug:
-            print("Set up PowerWriter with transmitIntervalSecs[%s] power deviceId[%s] hr deviceId[%s] speed deviceId[%s]" % (
-                self.transmitIntervalSecs, self.ant.deviceId, self.hrAnt.deviceId, self.speedAnt.deviceId))
+            print("Set up PowerWriter with transmitIntervalSecs[%s] power[%s] hr[%s] speed[%s] fe[%s]" % (
+                self.transmitIntervalSecs, self.ant.deviceId, self.hrAnt.deviceId,
+                self.speedAnt.deviceId, self.feAnt.deviceId))
 
     def __markProgress(self):
         self.lastUpdate = currentTimeMillis()
@@ -49,6 +51,17 @@ class PowerWriter:
     def __sendSpeed(self, speed, distance):
         self.speedAnt.broadcastSpeed(speed, distance)
 
+    def __sendFitnessEquipment(self, model):
+        self.feAnt.broadcast(
+            elapsed_time_secs=model.elapsed_time,
+            distance_kettler=model.distance,
+            speed_tenths_kmh=model.speed,
+            heart_rate=model.heart_rate,
+            power=model.power,
+            cadence=model.cadence,
+            energy_kj=model.energy
+        )
+
     def __sendInLoop(self):
         print("Starting Ant+ writing loop...")
         try:
@@ -56,6 +69,7 @@ class PowerWriter:
                 self.__sendPower(self.powerModel.power, self.powerModel.cadence)
                 self.__sendHeartRate(self.powerModel.heart_rate)
                 self.__sendSpeed(self.powerModel.speed, self.powerModel.distance)
+                self.__sendFitnessEquipment(self.powerModel)
                 self.__markProgress()
                 sleep(self.transmitIntervalSecs)
         except Exception as e:
@@ -67,6 +81,7 @@ class PowerWriter:
             self.ant.close()
             self.hrAnt.close()
             self.speedAnt.close()
+            self.feAnt.close()
 
     def updateModel(self, model):
         self.powerModel.power = checkRange(0, model.power, 2048)
@@ -74,6 +89,8 @@ class PowerWriter:
         self.powerModel.heart_rate = checkRange(0, model.heart_rate, 255)
         self.powerModel.speed = checkRange(0, model.speed, 9999)  # Max ~999.9 km/h
         self.powerModel.distance = checkRange(0, model.distance, 65535)  # Kettler distance units
+        self.powerModel.energy = checkRange(0, model.energy, 65535)  # Energy in kJ
+        self.powerModel.elapsed_time = checkRange(0, model.elapsed_time, 65535)  # Time in seconds
 
     def start(self):
         self.running = True
