@@ -7,9 +7,11 @@ ANT_NETWORK = 1
 ANT_DEVICE_TYPE_POWER = 11
 ANT_DEVICE_TYPE_FITNESS_EQUIPMENT = 0x11
 ANT_DEVICE_TYPE_HEART_RATE = 120
+ANT_DEVICE_TYPE_SPEED = 123
 
 ANT_POWER_CHANNEL_PERIOD = 8182
 ANT_HRM_CHANNEL_PERIOD = 8070
+ANT_SPEED_CHANNEL_PERIOD = 8118
 ANT_FITNESS_EQUIPMENT_TYPE_STATIONARY_BIKE = 21
 
 ANT_POWER_PROFILE_POwER_PAGE = 0x10
@@ -216,4 +218,67 @@ class HeartRateBroadcaster(AntBroadcaster):
 
         self.send_broadcast_data(self.channel, data)
         self.last_heart_rate = heart_rate
+        self.wait_tx()
+
+
+class SpeedBroadcaster(AntBroadcaster):
+    """Broadcasts speed data as an ANT+ Bike Speed sensor."""
+
+    # Typical bike wheel circumference in meters (700x25c road tire)
+    WHEEL_CIRCUMFERENCE = 2.105
+
+    def __init__(self, network_key, debug):
+        AntBroadcaster.__init__(self, network_key, debug,
+                                device_type=ANT_DEVICE_TYPE_SPEED,
+                                channel=2,
+                                channel_period=ANT_SPEED_CHANNEL_PERIOD)
+        self.debug = debug
+        self.cumulative_revs = 0
+        self.measurement_time = 0
+        self.last_speed = -1
+
+    def broadcastSpeed(self, speed_tenths_kmh=0):
+        """
+        Broadcast speed data using ANT+ Bike Speed profile.
+
+        ANT+ Speed sensor format (8 bytes):
+        - Bytes 0-3: Reserved (0xFF)
+        - Bytes 4-5: Bike speed event time (1/1024 sec, uint16_le)
+        - Bytes 6-7: Cumulative wheel revolutions (uint16_le)
+
+        Args:
+            speed_tenths_kmh: Speed in 0.1 km/h units (e.g., 250 = 25.0 km/h)
+        """
+        # Convert speed from 0.1 km/h to m/s: (speed / 10) * (1000 / 3600)
+        speed_ms = speed_tenths_kmh / 36.0
+
+        # Calculate wheel revolutions per second
+        if speed_ms > 0:
+            revs_per_second = speed_ms / self.WHEEL_CIRCUMFERENCE
+            # Time between broadcasts is ~0.25s (250ms interval)
+            # Add fractional revolutions since last broadcast
+            revs_this_interval = revs_per_second * 0.25
+            self.cumulative_revs = (self.cumulative_revs + revs_this_interval) % 65536
+            # Advance measurement time by 0.25s in 1/1024 second units
+            self.measurement_time = (self.measurement_time + 256) & 0xFFFF
+
+        wheel_revs_int = int(self.cumulative_revs)
+
+        data = [
+            0xFF,  # Reserved
+            0xFF,  # Reserved
+            0xFF,  # Reserved
+            0xFF,  # Reserved
+            self.measurement_time & 0xFF,         # Event time LSB
+            (self.measurement_time >> 8) & 0xFF,  # Event time MSB
+            wheel_revs_int & 0xFF,                # Cumulative revs LSB
+            (wheel_revs_int >> 8) & 0xFF          # Cumulative revs MSB
+        ]
+
+        if self.debug or speed_tenths_kmh != self.last_speed:
+            print("Sending Speed data for device[%s]: %s for speed[%s] (%.1f km/h)" % (
+                self.deviceId, str(data), speed_tenths_kmh, speed_tenths_kmh / 10.0))
+
+        self.send_broadcast_data(self.channel, data)
+        self.last_speed = speed_tenths_kmh
         self.wait_tx()
