@@ -220,9 +220,9 @@ class Ant:
         if self._node is None:
             self.auto_init()
 
-        # Convert key list to bytes if necessary
-        if isinstance(key, list):
-            key = bytes(key)
+        # Ensure key is a list of integers (openant expects list, not bytes)
+        if isinstance(key, bytes):
+            key = list(key)
 
         try:
             self._node.set_network_key(network, key)
@@ -327,9 +327,9 @@ class Ant:
         if chan not in self._channels:
             raise AntWrongResponseException(f"Channel {chan} not assigned")
 
-        # Convert data list to bytes if necessary
-        if isinstance(data, list):
-            data = bytes(data)
+        # Ensure data is a list of integers (openant expects list, not bytes)
+        if isinstance(data, bytes):
+            data = list(data)
 
         try:
             self._channels[chan].send_broadcast_data(data)
@@ -344,8 +344,9 @@ class Ant:
         if chan not in self._channels:
             raise AntWrongResponseException(f"Channel {chan} not assigned")
 
-        if isinstance(data, list):
-            data = bytes(data)
+        # Ensure data is a list of integers (openant expects list, not bytes)
+        if isinstance(data, bytes):
+            data = list(data)
 
         try:
             self._channels[chan].send_acknowledged_data(data)
@@ -360,8 +361,9 @@ class Ant:
         if chan not in self._channels:
             raise AntWrongResponseException(f"Channel {chan} not assigned")
 
-        if isinstance(data, list):
-            data = bytes(data)
+        # Ensure data is a list of integers (openant expects list, not bytes)
+        if isinstance(data, bytes):
+            data = list(data)
 
         try:
             self._channels[chan].send_burst_transfer(data)
